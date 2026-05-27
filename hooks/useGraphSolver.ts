@@ -257,6 +257,8 @@ export function useGraphSolver() {
 
   const runSolver = async () => {
     setIsRunning(true);
+    resetResult();
+
     try {
       const response = await fetch(`${BACKEND_BASE_URL}/solve`, {
         method: "POST",
@@ -274,8 +276,26 @@ export function useGraphSolver() {
         }),
       });
 
-      const payload = await response.json();
-      if (!response.ok || payload.error) throw new Error(payload.error);
+      if (response.status === 429) {
+        throw new Error("Terlalu banyak request. Tunggu 1 menit.");
+      }
+
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error(`Server bermasalah (${response.status}).`);
+      }
+
+      if (response.status === 422 && payload.detail) {
+        const msg = payload.detail.map((err: any) => err.msg).join(", ");
+        throw new Error(`Input salah: ${msg}`);
+      }
+
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || `Server Error (${response.status})`);
+      }
 
       const fetchedPathNodeIds: string[] = payload.path_ids ?? [];
       setPathNodeIds(fetchedPathNodeIds);
@@ -291,11 +311,14 @@ export function useGraphSolver() {
           (id) => nodes.find((n) => n.id === id)?.label ?? id,
         ),
       });
+
     } catch (e: unknown) {
       if (e instanceof TypeError) {
-        alert("Backend belum siap.");
+        alert("Koneksi gagal. Backend mati atau CORS bermasalah.");
+      } else if (e instanceof Error) {
+        alert(e.message);
       } else {
-        alert(String(e));
+        alert("Error tidak diketahui.");
       }
       resetResult();
     } finally {
